@@ -1,6 +1,7 @@
 import socket
 import argparse
 import json
+import os
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
@@ -49,18 +50,15 @@ def scan_port(port):
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(1)
-
         result = s.connect_ex((target, port))
 
         if result == 0:
 
-            # Detect service name
             try:
                 detected_service = socket.getservbyport(port)
             except:
                 detected_service = "Unknown"
 
-            # Banner grabbing
             try:
                 banner = s.recv(1024).decode(errors="ignore").strip()
             except:
@@ -68,7 +66,6 @@ def scan_port(port):
 
             port_str = str(port)
 
-            # Lookup in risk database
             if port_str in risk_db:
                 risk_info = risk_db[port_str]
                 service_name = risk_info["service"]
@@ -79,14 +76,7 @@ def scan_port(port):
                 risk_level = "Low"
                 description = "No known major risks recorded."
 
-            print(f"[OPEN] Port {port}")
-            print(f"Service: {service_name}")
-            print(f"Risk Level: {risk_level}")
-            print(f"Description: {description}")
-            print("-" * 50)
-
-            if risk_level == "High":
-                print(f"[ALERT] HIGH RISK SERVICE DETECTED ON PORT {port}")
+            print(f"[OPEN] Port {port} | Risk: {risk_level}")
 
             open_ports.append({
                 "port": port,
@@ -101,22 +91,42 @@ def scan_port(port):
     except:
         pass
 
-
 # -------------------- Multi-threaded Scan --------------------
 ports = range(start_port, end_port + 1)
 
 with ThreadPoolExecutor(max_workers=200) as executor:
     executor.map(scan_port, ports)
 
-# -------------------- JSON Report Generation --------------------
+# -------------------- Change Detection --------------------
+filename = f"scan_{target}.json"
+previous_ports = []
+
+if os.path.exists(filename):
+    with open(filename, "r") as old_file:
+        old_data = json.load(old_file)
+        previous_ports = [entry["port"] for entry in old_data["open_ports"]]
+
+current_ports = [entry["port"] for entry in open_ports]
+
+new_ports = set(current_ports) - set(previous_ports)
+closed_ports = set(previous_ports) - set(current_ports)
+
+if new_ports or closed_ports:
+    print("\n[CHANGE DETECTED]")
+    if new_ports:
+        print(f"Newly Opened Ports: {list(new_ports)}")
+    if closed_ports:
+        print(f"Closed Ports: {list(closed_ports)}")
+else:
+    print("\nNo changes detected from previous scan.")
+
+# -------------------- Save New Scan --------------------
 scan_data = {
     "target": target,
     "original_input": target_input,
     "timestamp": str(datetime.now()),
     "open_ports": open_ports
 }
-
-filename = f"scan_{target}.json"
 
 with open(filename, "w") as f:
     json.dump(scan_data, f, indent=4)
