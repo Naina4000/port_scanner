@@ -39,7 +39,7 @@ try:
     with open("risk_database.json", "r") as db_file:
         risk_db = json.load(db_file)
 except FileNotFoundError:
-    print("Risk database file not found.")
+    print("risk_database.json file not found.")
     exit()
 
 open_ports = []
@@ -53,27 +53,34 @@ def scan_port(port):
         result = s.connect_ex((target, port))
 
         if result == 0:
-            try:
-                service = socket.getservbyport(port)
-            except:
-                service = "Unknown"
 
+            # Detect service name
             try:
-                banner = s.recv(1024).decode().strip()
+                detected_service = socket.getservbyport(port)
+            except:
+                detected_service = "Unknown"
+
+            # Banner grabbing
+            try:
+                banner = s.recv(1024).decode(errors="ignore").strip()
             except:
                 banner = "No Banner"
 
             port_str = str(port)
 
+            # Lookup in risk database
             if port_str in risk_db:
                 risk_info = risk_db[port_str]
+                service_name = risk_info["service"]
                 risk_level = risk_info["risk_level"]
                 description = risk_info["description"]
             else:
+                service_name = detected_service
                 risk_level = "Low"
                 description = "No known major risks recorded."
 
-            print(f"[OPEN] Port {port} | Service: {service}")
+            print(f"[OPEN] Port {port}")
+            print(f"Service: {service_name}")
             print(f"Risk Level: {risk_level}")
             print(f"Description: {description}")
             print("-" * 50)
@@ -83,7 +90,7 @@ def scan_port(port):
 
             open_ports.append({
                 "port": port,
-                "service": service,
+                "service": service_name,
                 "banner": banner,
                 "risk_level": risk_level,
                 "description": description
