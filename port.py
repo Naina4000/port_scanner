@@ -53,7 +53,6 @@ def scan_port(port):
         result = s.connect_ex((target, port))
 
         if result == 0:
-
             try:
                 detected_service = socket.getservbyport(port)
             except:
@@ -91,36 +90,54 @@ def scan_port(port):
     except:
         pass
 
+
 # -------------------- Multi-threaded Scan --------------------
 ports = range(start_port, end_port + 1)
 
 with ThreadPoolExecutor(max_workers=200) as executor:
     executor.map(scan_port, ports)
 
-# -------------------- Change Detection --------------------
-filename = f"scan_{target}.json"
+# -------------------- File Names --------------------
+scan_filename = f"scan_{target}.json"
+compare_filename = f"compare_{target}.json"
+
+# -------------------- Load Previous Scan --------------------
 previous_ports = []
 
-if os.path.exists(filename):
-    with open(filename, "r") as old_file:
+if os.path.exists(scan_filename):
+    with open(scan_filename, "r") as old_file:
         old_data = json.load(old_file)
         previous_ports = [entry["port"] for entry in old_data["open_ports"]]
 
 current_ports = [entry["port"] for entry in open_ports]
 
-new_ports = set(current_ports) - set(previous_ports)
-closed_ports = set(previous_ports) - set(current_ports)
+new_ports = list(set(current_ports) - set(previous_ports))
+closed_ports = list(set(previous_ports) - set(current_ports))
+
+# -------------------- Always Create Comparison File --------------------
+compare_data = {
+    "target": target,
+    "timestamp": str(datetime.now()),
+    "new_ports": new_ports,
+    "closed_ports": closed_ports,
+    "status": "Changes detected" if (new_ports or closed_ports) else "No changes detected"
+}
+
+with open(compare_filename, "w") as compare_file:
+    json.dump(compare_data, compare_file, indent=4)
 
 if new_ports or closed_ports:
     print("\n[CHANGE DETECTED]")
     if new_ports:
-        print(f"Newly Opened Ports: {list(new_ports)}")
+        print(f"Newly Opened Ports: {new_ports}")
     if closed_ports:
-        print(f"Closed Ports: {list(closed_ports)}")
+        print(f"Closed Ports: {closed_ports}")
 else:
     print("\nNo changes detected from previous scan.")
 
-# -------------------- Save New Scan --------------------
+print(f"Comparison report saved as {compare_filename}")
+
+# -------------------- Always Save New Scan --------------------
 scan_data = {
     "target": target,
     "original_input": target_input,
@@ -128,9 +145,9 @@ scan_data = {
     "open_ports": open_ports
 }
 
-with open(filename, "w") as f:
+with open(scan_filename, "w") as f:
     json.dump(scan_data, f, indent=4)
 
 print("\nScan Completed.")
 print(f"Total Open Ports Found: {len(open_ports)}")
-print(f"Report saved as {filename}")
+print(f"Report saved as {scan_filename}")
