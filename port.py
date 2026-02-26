@@ -8,15 +8,19 @@ from concurrent.futures import ThreadPoolExecutor
 
 print("""
 ====================================
-      SOC Port Exposure Monitor
+      **SOC Port Exposure Monitor**
+
 ====================================
 """)
 
 # -------------------- Logging Setup --------------------
 logging.basicConfig(
-    filename="scanner.log",
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    **filename="scanner.log",**
+
+    **level=logging.INFO,**
+
+    **format="%(asctime)s - %(levelname)s - %(message)s"**
+
 )
 
 logging.info("Scan initiated")
@@ -35,11 +39,17 @@ end_port = args.endport
 
 # -------------------- Resolve Domain --------------------
 try:
-    target = socket.gethostbyname(target_input)
+    **target = socket.gethostbyname(target\_input)**
+
 except socket.gaierror:
-    print("Invalid target.")
-    logging.error("Invalid target provided")
-    exit()
+    **print("Invalid target.")**
+
+    **logging.error("Invalid target provided")**
+
+    **exit()**
+
+
+
 
 print(f"Scanning Target: {target} ({target_input})")
 print(f"Port Range: {start_port} - {end_port}")
@@ -49,125 +59,201 @@ print("-" * 50)
 logging.info(f"Scanning target {target}")
 
 # -------------------- Load Risk Database --------------------
-try:
-    with open("risk_database.json", "r") as db_file:
-        risk_db = json.load(db_file)
-except FileNotFoundError:
-    print("risk_database.json file not found.")
-    logging.error("Risk database file missing")
-    exit()
+with open("risk_database.json", "r") as db_file:
+    **risk\_db = json.load(db\_file)**
+
+
+
 
 open_ports = []
+total_risk_score = 0
+high_count = 0
+medium_count = 0
+low_count = 0
 
 # -------------------- Port Scan Function --------------------
 def scan_port(port):
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(1)
-        result = s.connect_ex((target, port))
+    **global total\_risk\_score, high\_count, medium\_count, low\_count**
 
-        if result == 0:
-            try:
-                detected_service = socket.getservbyport(port)
-            except:
-                detected_service = "Unknown"
 
-            try:
-                banner = s.recv(1024).decode(errors="ignore").strip()
-            except:
-                banner = "No Banner"
 
-            port_str = str(port)
+    **try:**
 
-            if port_str in risk_db:
-                risk_info = risk_db[port_str]
-                service_name = risk_info["service"]
-                risk_level = risk_info["risk_level"]
-                description = risk_info["description"]
-            else:
-                service_name = detected_service
-                risk_level = "Low"
-                description = "No known major risks recorded."
+        **s = socket.socket(socket.AF\_INET, socket.SOCK\_STREAM)**
 
-            print(f"[OPEN] Port {port} | Risk: {risk_level}")
+        **s.settimeout(1)**
 
-            logging.info(f"Open Port Detected: {port} | Risk: {risk_level}")
+        **result = s.connect\_ex((target, port))**
 
-            if risk_level == "High":
-                print(f"[ALERT] HIGH RISK SERVICE DETECTED ON PORT {port}")
-                logging.warning(f"High Risk Port Detected: {port}")
 
-            open_ports.append({
-                "port": port,
-                "service": service_name,
-                "banner": banner,
-                "risk_level": risk_level,
-                "description": description
-            })
 
-        s.close()
+        **if result == 0:**
 
-    except:
-        pass
+            **port\_str = str(port)**
+
+
+
+            **if port\_str in risk\_db:**
+
+                **risk\_info = risk\_db\[port\_str]**
+
+                **service\_name = risk\_info\["service"]**
+
+                **risk\_level = risk\_info\["risk\_level"]**
+
+                **description = risk\_info\["description"]**
+
+                **severity\_score = risk\_info.get("severity\_score", 3)**
+
+            **else:**
+
+                **service\_name = "Unknown"**
+
+                **risk\_level = "Low"**
+
+                **description = "No known major risks recorded."**
+
+                **severity\_score = 2**
+
+
+
+            **total\_risk\_score += severity\_score**
+
+
+
+            **if risk\_level == "High":**
+
+                **high\_count += 1**
+
+            **elif risk\_level == "Medium":**
+
+                **medium\_count += 1**
+
+            **else:**
+
+                **low\_count += 1**
+
+
+
+            **print(f"\[OPEN] Port {port} | Risk: {risk\_level} | Severity: {severity\_score}")**
+
+
+
+            **open\_ports.append({**
+
+                **"port": port,**
+
+                **"service": service\_name,**
+
+                **"risk\_level": risk\_level,**
+
+                **"severity\_score": severity\_score,**
+
+                **"description": description**
+
+            **})**
+
+
+
+        **s.close()**
+
+
+
+    **except:**
+
+        **pass**
+
+
+
+
+
 
 
 # -------------------- Multi-threaded Scan --------------------
 ports = range(start_port, end_port + 1)
-
 with ThreadPoolExecutor(max_workers=200) as executor:
-    executor.map(scan_port, ports)
+    **executor.map(scan\_port, ports)**
 
-# -------------------- File Names --------------------
-scan_filename = f"scan_{target}.json"
-compare_filename = f"compare_{target}.json"
 
-# -------------------- Load Previous Scan --------------------
-previous_ports = []
 
-if os.path.exists(scan_filename):
-    with open(scan_filename, "r") as old_file:
-        old_data = json.load(old_file)
-        previous_ports = [entry["port"] for entry in old_data["open_ports"]]
 
-current_ports = [entry["port"] for entry in open_ports]
+# -------------------- Overall Risk Classification --------------------
+if total_risk_score <= 10:
+    **overall\_risk = "Low"**
 
-new_ports = list(set(current_ports) - set(previous_ports))
-closed_ports = list(set(previous_ports) - set(current_ports))
+elif total_risk_score <= 25:
+    **overall\_risk = "Moderate"**
 
-# -------------------- Comparison Report --------------------
-compare_data = {
-    "target": target,
-    "timestamp": str(datetime.now()),
-    "new_ports": new_ports,
-    "closed_ports": closed_ports,
-    "status": "Changes detected" if (new_ports or closed_ports) else "No changes detected"
-}
+elif total_risk_score <= 40:
+    **overall\_risk = "High"**
 
-with open(compare_filename, "w") as compare_file:
-    json.dump(compare_data, compare_file, indent=4)
-
-if new_ports or closed_ports:
-    print("\n[CHANGE DETECTED]")
-    logging.warning("Configuration change detected")
 else:
-    print("\nNo changes detected from previous scan.")
+    **overall\_risk = "Critical"**
 
-print(f"Comparison report saved as {compare_filename}")
 
-# -------------------- Save New Scan --------------------
-scan_data = {
-    "target": target,
-    "original_input": target_input,
-    "timestamp": str(datetime.now()),
-    "open_ports": open_ports
+
+
+# -------------------- Alert Threshold Logic --------------------
+alert_status = "NORMAL"
+
+if overall_risk == "Critical":
+    **alert\_status = "CRITICAL ALERT"**
+
+    **print("\\n⚠️  CRITICAL RISK THRESHOLD EXCEEDED ⚠️")**
+
+    **logging.critical("Critical exposure threshold exceeded")**
+
+
+
+
+# -------------------- Save Final Report --------------------
+report_filename = f"soc_full_report_{target}.json"
+
+full_report = {
+    **"target": target,**
+
+    **"timestamp": str(datetime.now()),**
+
+    **"summary": {**
+
+        **"total\_open\_ports": len(open\_ports),**
+
+        **"high\_risk": high\_count,**
+
+        **"medium\_risk": medium\_count,**
+
+        **"low\_risk": low\_count,**
+
+        **"total\_risk\_score": total\_risk\_score,**
+
+        **"overall\_host\_risk": overall\_risk,**
+
+        **"alert\_status": alert\_status**
+
+    **},**
+
+    **"open\_ports": open\_ports**
+
 }
 
-with open(scan_filename, "w") as f:
-    json.dump(scan_data, f, indent=4)
+with open(report_filename, "w") as f:
+    **json.dump(full\_report, f, indent=4)**
 
-logging.info("Scan completed successfully")
 
-print("\nScan Completed.")
-print(f"Total Open Ports Found: {len(open_ports)}")
-print(f"Report saved as {scan_filename}")
+
+
+# -------------------- Console Summary --------------------
+print("\n====================================")
+print("SCAN SUMMARY")
+print("====================================")
+print(f"Total Open Ports: {len(open_ports)}")
+print(f"High Risk: {high_count}")
+print(f"Medium Risk: {medium_count}")
+print(f"Low Risk: {low_count}")
+print(f"Total Risk Score: {total_risk_score}")
+print(f"Overall Host Risk Level: {overall_risk}")
+print(f"Alert Status: {alert_status}")
+print("====================================")
+
+print(f"\nReport saved as {report_filename}")
 print("Logs saved in scanner.log")
