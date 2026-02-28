@@ -21,8 +21,6 @@ logging.basicConfig(
 
     \*\*format="%(asctime)s - %(levelname)s - %(message)s"\*\*
 
-
-
 )
 
 # -------------------- Argument Parser --------------------
@@ -48,13 +46,6 @@ except socket.gaierror:
     \*\*exit()\*\*
 
 
-
-
-
-
-
-
-
 # -------------------- Load Risk Database --------------------
 with open("risk_database.json", "r") as db_file:
     **risk\_db = json.load(db\_file)**
@@ -74,13 +65,11 @@ def perform_scan():
     \*\*low\\\_count = 0\*\*
 
 
-
     \*\*print("\\\\n----------------------------------------")\*\*
 
     \*\*print("Scanning at:", datetime.now())\*\*
 
     \*\*print("----------------------------------------")\*\*
-
 
 
     \*\*def scan\\\_port(port):\*\*
@@ -115,6 +104,8 @@ def perform_scan():
 
                     \*\*severity\\\_score = risk\\\_info.get("severity\\\_score", 3)\*\*
 
+                    \*\*description = risk\\\_info.get("description", "")\*\*
+
                 \*\*else:\*\*
 
                     \*\*service\\\_name = "Unknown"\*\*
@@ -123,11 +114,9 @@ def perform_scan():
 
                     \*\*severity\\\_score = 2\*\*
 
-
+                    \*\*description = "No known major risks recorded."\*\*
 
                 \*\*total\\\_risk\\\_score += severity\\\_score\*\*
-
-
 
                 \*\*if risk\\\_level == "High":\*\*
 
@@ -141,11 +130,9 @@ def perform_scan():
 
                     \*\*low\\\_count += 1\*\*
 
+                \*\*print(f"\\\[OPEN] Port {port} | Risk: {risk\\\_level} | Severity: {severity\\\_score}")\*\*
 
-
-                \*\*print(f"\\\[OPEN] Port {port} | Risk: {risk\\\_level}")\*\*
-
-
+                \*\*logging.info(f"{target}:{port} Open | Risk: {risk\\\_level} | Severity: {severity\\\_score}")\*\*
 
                 \*\*open\\\_ports.append({\*\*
 
@@ -155,7 +142,9 @@ def perform_scan():
 
                     \*\*"risk\\\_level": risk\\\_level,\*\*
 
-                    \*\*"severity\\\_score": severity\\\_score\*\*
+                    \*\*"severity\\\_score": severity\\\_score,\*\*
+
+                    \*\*"description": description\*\*
 
                 \*\*})\*\*
 
@@ -169,6 +158,8 @@ def perform_scan():
 
 
 
+    \*\*# -------------------- Multi-threaded Scan --------------------\*\*
+
     \*\*ports = range(start\\\_port, end\\\_port + 1)\*\*
 
     \*\*with ThreadPoolExecutor(max\\\_workers=200) as executor:\*\*
@@ -177,7 +168,7 @@ def perform_scan():
 
 
 
-    \*\*# Risk Classification\*\*
+    \*\*# -------------------- Risk Classification --------------------\*\*
 
     \*\*if total\\\_risk\\\_score <= 10:\*\*
 
@@ -197,23 +188,37 @@ def perform_scan():
 
 
 
-    \*\*print("\\\\nSCAN SUMMARY")\*\*
-
-    \*\*print("Total Risk Score:", total\\\_risk\\\_score)\*\*
-
-    \*\*print("Overall Risk Level:", overall\\\_risk)\*\*
+    \*\*alert\\\_status = "NORMAL"\*\*
 
 
 
     \*\*if overall\\\_risk == "Critical":\*\*
 
-        \*\*print("⚠️  CRITICAL ALERT ⚠️")\*\*
+        \*\*alert\\\_status = "CRITICAL ALERT"\*\*
 
-        \*\*logging.critical("Critical risk detected")\*\*
+        \*\*print("\\\\n⚠️  CRITICAL ALERT THRESHOLD EXCEEDED ⚠️")\*\*
+
+        \*\*logging.critical("Critical exposure threshold exceeded")\*\*
 
 
 
-    \*\*# Save report\*\*
+    \*\*# -------------------- Risk Ranking --------------------\*\*
+
+    \*\*sorted\\\_ports = sorted(open\\\_ports, key=lambda x: x\\\["severity\\\_score"], reverse=True)\*\*
+
+    \*\*top\\\_exposures = sorted\\\_ports\\\[:3]\*\*
+
+
+
+    \*\*print("\\\\nTop Critical Exposures:")\*\*
+
+    \*\*for idx, port in enumerate(top\\\_exposures, start=1):\*\*
+
+        \*\*print(f"{idx}. Port {port\\\['port']} | Severity: {port\\\['severity\\\_score']} | Risk: {port\\\['risk\\\_level']}")\*\*
+
+
+
+    \*\*# -------------------- Save Report --------------------\*\*
 
     \*\*report\\\_filename = f"soc\\\_monitor\\\_report\\\_{target}.json"\*\*
 
@@ -225,9 +230,25 @@ def perform_scan():
 
         \*\*"timestamp": str(datetime.now()),\*\*
 
-        \*\*"total\\\_risk\\\_score": total\\\_risk\\\_score,\*\*
+        \*\*"summary": {\*\*
 
-        \*\*"overall\\\_risk": overall\\\_risk,\*\*
+            \*\*"total\\\_open\\\_ports": len(open\\\_ports),\*\*
+
+            \*\*"high\\\_risk": high\\\_count,\*\*
+
+            \*\*"medium\\\_risk": medium\\\_count,\*\*
+
+            \*\*"low\\\_risk": low\\\_count,\*\*
+
+            \*\*"total\\\_risk\\\_score": total\\\_risk\\\_score,\*\*
+
+            \*\*"overall\\\_risk": overall\\\_risk,\*\*
+
+            \*\*"alert\\\_status": alert\\\_status\*\*
+
+        \*\*},\*\*
+
+        \*\*"prioritized\\\_exposures": top\\\_exposures,\*\*
 
         \*\*"open\\\_ports": open\\\_ports\*\*
 
@@ -241,20 +262,17 @@ def perform_scan():
 
 
 
+    \*\*print("\\\\nSCAN SUMMARY")\*\*
+
+    \*\*print("Total Open Ports:", len(open\\\_ports))\*\*
+
+    \*\*print("Total Risk Score:", total\\\_risk\\\_score)\*\*
+
+    \*\*print("Overall Risk Level:", overall\\\_risk)\*\*
+
+    \*\*print("Alert Status:", alert\\\_status)\*\*
+
     \*\*print("Report updated:", report\\\_filename)\*\*
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # -------------------- Execution Mode --------------------
