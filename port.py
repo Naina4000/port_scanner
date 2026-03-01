@@ -13,7 +13,7 @@ print("""
 ====================================
 """)
 
-# -------------------- Logging Setup (SIEM-Ready Format) --------------------
+# -------------------- Logging Setup (SIEM Ready) --------------------
 logging.basicConfig(
     filename="scanner.log",
     level=logging.INFO,
@@ -85,16 +85,19 @@ def perform_scan():
                         "description": "No intelligence available."
                     }
 
-                total_risk_score += risk_info["severity_score"]
+                severity = risk_info["severity_score"]
+                risk_level = risk_info["risk_level"]
 
-                if risk_info["risk_level"] == "High":
+                total_risk_score += severity
+
+                if risk_level == "High":
                     high_count += 1
-                elif risk_info["risk_level"] == "Medium":
+                elif risk_level == "Medium":
                     medium_count += 1
                 else:
                     low_count += 1
 
-                print(f"[OPEN] Port {port} | Risk: {risk_info['risk_level']} | Severity: {risk_info['severity_score']}")
+                print(f"[OPEN] Port {port} | Risk: {risk_level} | Severity: {severity}")
 
                 # -------- SIEM Structured Log --------
                 logging.info(
@@ -102,8 +105,8 @@ def perform_scan():
                     f"target={target} "
                     f"port={port} "
                     f"service={risk_info['service']} "
-                    f"risk={risk_info['risk_level']} "
-                    f"severity={risk_info['severity_score']} "
+                    f"risk={risk_level} "
+                    f"severity={severity} "
                     f"category={risk_info['category']} "
                     f"mitre={risk_info['mitre_reference']}"
                 )
@@ -139,10 +142,17 @@ def perform_scan():
         alert_status = "CRITICAL ALERT"
         print("\n⚠️  CRITICAL ALERT THRESHOLD EXCEEDED ⚠️")
         logging.critical(
-            f"event=CRITICAL_ALERT "
-            f"target={target} "
-            f"total_risk_score={total_risk_score}"
+            f"event=CRITICAL_ALERT target={target} total_risk_score={total_risk_score}"
         )
+
+    # -------------------- Attack Surface Index --------------------
+    if len(open_ports) > 0:
+        max_possible = len(open_ports) * 10
+        attack_surface_index = round((total_risk_score / max_possible) * 10, 2)
+    else:
+        attack_surface_index = 0
+
+    print("Attack Surface Index (0-10):", attack_surface_index)
 
     # -------------------- Risk Ranking --------------------
     sorted_ports = sorted(open_ports, key=lambda x: x["severity_score"], reverse=True)
@@ -166,18 +176,12 @@ def perform_scan():
                 if total_risk_score > previous_score:
                     trend_status = "Increased"
                     logging.warning(
-                        f"event=RISK_INCREASE "
-                        f"target={target} "
-                        f"previous_score={previous_score} "
-                        f"current_score={total_risk_score}"
+                        f"event=RISK_INCREASE target={target} previous_score={previous_score} current_score={total_risk_score}"
                     )
                 elif total_risk_score < previous_score:
                     trend_status = "Decreased"
                     logging.info(
-                        f"event=RISK_DECREASE "
-                        f"target={target} "
-                        f"previous_score={previous_score} "
-                        f"current_score={total_risk_score}"
+                        f"event=RISK_DECREASE target={target} previous_score={previous_score} current_score={total_risk_score}"
                     )
                 else:
                     trend_status = "Stable"
@@ -195,6 +199,7 @@ def perform_scan():
             "low_risk": low_count,
             "total_risk_score": total_risk_score,
             "overall_risk": overall_risk,
+            "attack_surface_index": attack_surface_index,
             "alert_status": alert_status,
             "risk_trend": trend_status
         },
@@ -209,6 +214,7 @@ def perform_scan():
     print("Total Open Ports:", len(open_ports))
     print("Total Risk Score:", total_risk_score)
     print("Overall Risk Level:", overall_risk)
+    print("Attack Surface Index:", attack_surface_index)
     print("Alert Status:", alert_status)
     print("Risk Trend:", trend_status)
     print("Report updated:", report_filename)
