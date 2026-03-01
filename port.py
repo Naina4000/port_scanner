@@ -34,7 +34,7 @@ start_port = args.startport
 end_port = args.endport
 monitor_interval = args.monitor
 
-# -------------------- Resolve Domain --------------------
+# -------------------- Resolve Target --------------------
 try:
     target = socket.gethostbyname(target_input)
 except socket.gaierror:
@@ -46,7 +46,6 @@ with open("risk_database.json", "r") as db_file:
     risk_db = json.load(db_file)
 
 
-# -------------------- Scan Function --------------------
 def perform_scan():
 
     open_ports = []
@@ -99,15 +98,11 @@ def perform_scan():
 
                 print(f"[OPEN] Port {port} | Risk: {risk_level} | Severity: {severity}")
 
-                # -------- SIEM Structured Log --------
+                # SIEM Structured Log
                 logging.info(
-                    f"event=PORT_OPEN "
-                    f"target={target} "
-                    f"port={port} "
-                    f"service={risk_info['service']} "
-                    f"risk={risk_level} "
-                    f"severity={severity} "
-                    f"category={risk_info['category']} "
+                    f"event=PORT_OPEN target={target} port={port} "
+                    f"service={risk_info['service']} risk={risk_level} "
+                    f"severity={severity} category={risk_info['category']} "
                     f"mitre={risk_info['mitre_reference']}"
                 )
 
@@ -125,6 +120,8 @@ def perform_scan():
     ports = range(start_port, end_port + 1)
     with ThreadPoolExecutor(max_workers=200) as executor:
         executor.map(scan_port, ports)
+
+    total_open = len(open_ports)
 
     # -------------------- Risk Classification --------------------
     if total_risk_score <= 10:
@@ -146,13 +143,30 @@ def perform_scan():
         )
 
     # -------------------- Attack Surface Index --------------------
-    if len(open_ports) > 0:
-        max_possible = len(open_ports) * 10
+    if total_open > 0:
+        max_possible = total_open * 10
         attack_surface_index = round((total_risk_score / max_possible) * 10, 2)
     else:
         attack_surface_index = 0
 
-    print("Attack Surface Index (0-10):", attack_surface_index)
+    # -------------------- Heatmap Distribution --------------------
+    if total_open > 0:
+        high_percent = round((high_count / total_open) * 100, 2)
+        medium_percent = round((medium_count / total_open) * 100, 2)
+        low_percent = round((low_count / total_open) * 100, 2)
+    else:
+        high_percent = medium_percent = low_percent = 0
+
+    heatmap = {
+        "high_risk_percentage": high_percent,
+        "medium_risk_percentage": medium_percent,
+        "low_risk_percentage": low_percent
+    }
+
+    print("\nRisk Distribution Heatmap:")
+    print(f"High Risk: {high_percent}%")
+    print(f"Medium Risk: {medium_percent}%")
+    print(f"Low Risk: {low_percent}%")
 
     # -------------------- Risk Ranking --------------------
     sorted_ports = sorted(open_ports, key=lambda x: x["severity_score"], reverse=True)
@@ -160,12 +174,16 @@ def perform_scan():
 
     print("\nTop Critical Exposures:")
     for idx, port in enumerate(top_exposures, start=1):
-        print(f"{idx}. Port {port['port']} | Severity: {port['severity_score']} | Risk: {port['risk_level']}")
+        print(
+            f"{idx}. Port {port['port']} | "
+            f"Severity: {port['severity_score']} | "
+            f"Risk: {port['risk_level']} | "
+            f"Service: {port['service']}"
+        )
 
     # -------------------- Risk Trend Tracking --------------------
     report_filename = f"soc_monitor_report_{target}.json"
     trend_status = "No Previous Data"
-    previous_score = None
 
     if os.path.exists(report_filename):
         with open(report_filename, "r") as old_file:
@@ -176,12 +194,14 @@ def perform_scan():
                 if total_risk_score > previous_score:
                     trend_status = "Increased"
                     logging.warning(
-                        f"event=RISK_INCREASE target={target} previous_score={previous_score} current_score={total_risk_score}"
+                        f"event=RISK_INCREASE target={target} "
+                        f"previous_score={previous_score} current_score={total_risk_score}"
                     )
                 elif total_risk_score < previous_score:
                     trend_status = "Decreased"
                     logging.info(
-                        f"event=RISK_DECREASE target={target} previous_score={previous_score} current_score={total_risk_score}"
+                        f"event=RISK_DECREASE target={target} "
+                        f"previous_score={previous_score} current_score={total_risk_score}"
                     )
                 else:
                     trend_status = "Stable"
@@ -193,7 +213,7 @@ def perform_scan():
         "target": target,
         "timestamp": str(datetime.now()),
         "summary": {
-            "total_open_ports": len(open_ports),
+            "total_open_ports": total_open,
             "high_risk": high_count,
             "medium_risk": medium_count,
             "low_risk": low_count,
@@ -201,7 +221,8 @@ def perform_scan():
             "overall_risk": overall_risk,
             "attack_surface_index": attack_surface_index,
             "alert_status": alert_status,
-            "risk_trend": trend_status
+            "risk_trend": trend_status,
+            "heatmap_distribution": heatmap
         },
         "prioritized_exposures": top_exposures,
         "open_ports": sorted_ports
@@ -211,7 +232,7 @@ def perform_scan():
         json.dump(report_data, f, indent=4)
 
     print("\nSCAN SUMMARY")
-    print("Total Open Ports:", len(open_ports))
+    print("Total Open Ports:", total_open)
     print("Total Risk Score:", total_risk_score)
     print("Overall Risk Level:", overall_risk)
     print("Attack Surface Index:", attack_surface_index)
@@ -222,12 +243,12 @@ def perform_scan():
 
 # -------------------- Execution Mode --------------------
 if monitor_interval:
-    print(f"\nContinuous Monitoring Enabled (Interval: {monitor_interval} seconds)")
+    print(f"\nContinuous Monitoring Enabled ({monitor_interval} seconds)")
     try:
         while True:
             perform_scan()
             time.sleep(monitor_interval)
     except KeyboardInterrupt:
-        print("\nMonitoring stopped by user.")
+        print("\nMonitoring stopped.")
 else:
     perform_scan()
