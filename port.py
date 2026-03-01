@@ -13,11 +13,11 @@ print("""
 ====================================
 """)
 
-# -------------------- Logging Setup --------------------
+# -------------------- Logging Setup (SIEM-Ready Format) --------------------
 logging.basicConfig(
     filename="scanner.log",
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s %(levelname)s %(message)s"
 )
 
 # -------------------- Argument Parser --------------------
@@ -72,51 +72,49 @@ def perform_scan():
 
                 if port_str in risk_db:
                     risk_info = risk_db[port_str]
-                    service_name = risk_info["service"]
-                    risk_level = risk_info["risk_level"]
-                    severity_score = risk_info["severity_score"]
-                    category = risk_info["category"]
-                    exposure_type = risk_info["exposure_type"]
-                    mitre_reference = risk_info["mitre_reference"]
-                    cvss_reference = risk_info["cvss_reference"]
-                    recommended_action = risk_info["recommended_action"]
-                    description = risk_info["description"]
                 else:
-                    service_name = "Unknown"
-                    risk_level = "Low"
-                    severity_score = 2
-                    category = "Unknown"
-                    exposure_type = "Unknown"
-                    mitre_reference = "N/A"
-                    cvss_reference = "N/A"
-                    recommended_action = "Review service manually."
-                    description = "No intelligence available."
+                    risk_info = {
+                        "service": "Unknown",
+                        "risk_level": "Low",
+                        "severity_score": 2,
+                        "category": "Unknown",
+                        "exposure_type": "Unknown",
+                        "mitre_reference": "N/A",
+                        "cvss_reference": "N/A",
+                        "recommended_action": "Review manually.",
+                        "description": "No intelligence available."
+                    }
 
-                total_risk_score += severity_score
+                total_risk_score += risk_info["severity_score"]
 
-                if risk_level == "High":
+                if risk_info["risk_level"] == "High":
                     high_count += 1
-                elif risk_level == "Medium":
+                elif risk_info["risk_level"] == "Medium":
                     medium_count += 1
                 else:
                     low_count += 1
 
-                print(f"[OPEN] Port {port} | Risk: {risk_level} | Severity: {severity_score}")
+                print(f"[OPEN] Port {port} | Risk: {risk_info['risk_level']} | Severity: {risk_info['severity_score']}")
+
+                # -------- SIEM Structured Log --------
+                logging.info(
+                    f"event=PORT_OPEN "
+                    f"target={target} "
+                    f"port={port} "
+                    f"service={risk_info['service']} "
+                    f"risk={risk_info['risk_level']} "
+                    f"severity={risk_info['severity_score']} "
+                    f"category={risk_info['category']} "
+                    f"mitre={risk_info['mitre_reference']}"
+                )
 
                 open_ports.append({
                     "port": port,
-                    "service": service_name,
-                    "risk_level": risk_level,
-                    "severity_score": severity_score,
-                    "category": category,
-                    "exposure_type": exposure_type,
-                    "mitre_reference": mitre_reference,
-                    "cvss_reference": cvss_reference,
-                    "recommended_action": recommended_action,
-                    "description": description
+                    **risk_info
                 })
 
             s.close()
+
         except:
             pass
 
@@ -140,7 +138,11 @@ def perform_scan():
     if overall_risk == "Critical":
         alert_status = "CRITICAL ALERT"
         print("\n⚠️  CRITICAL ALERT THRESHOLD EXCEEDED ⚠️")
-        logging.critical("Critical exposure threshold exceeded")
+        logging.critical(
+            f"event=CRITICAL_ALERT "
+            f"target={target} "
+            f"total_risk_score={total_risk_score}"
+        )
 
     # -------------------- Risk Ranking --------------------
     sorted_ports = sorted(open_ports, key=lambda x: x["severity_score"], reverse=True)
@@ -153,6 +155,7 @@ def perform_scan():
     # -------------------- Risk Trend Tracking --------------------
     report_filename = f"soc_monitor_report_{target}.json"
     trend_status = "No Previous Data"
+    previous_score = None
 
     if os.path.exists(report_filename):
         with open(report_filename, "r") as old_file:
@@ -162,14 +165,26 @@ def perform_scan():
             if previous_score is not None:
                 if total_risk_score > previous_score:
                     trend_status = "Increased"
+                    logging.warning(
+                        f"event=RISK_INCREASE "
+                        f"target={target} "
+                        f"previous_score={previous_score} "
+                        f"current_score={total_risk_score}"
+                    )
                 elif total_risk_score < previous_score:
                     trend_status = "Decreased"
+                    logging.info(
+                        f"event=RISK_DECREASE "
+                        f"target={target} "
+                        f"previous_score={previous_score} "
+                        f"current_score={total_risk_score}"
+                    )
                 else:
                     trend_status = "Stable"
 
     print("Risk Trend:", trend_status)
 
-    # -------------------- Save Report --------------------
+    # -------------------- Save JSON Report --------------------
     report_data = {
         "target": target,
         "timestamp": str(datetime.now()),
@@ -184,7 +199,7 @@ def perform_scan():
             "risk_trend": trend_status
         },
         "prioritized_exposures": top_exposures,
-        "open_ports": open_ports
+        "open_ports": sorted_ports
     }
 
     with open(report_filename, "w") as f:
